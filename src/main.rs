@@ -14,6 +14,7 @@ mod config;
 use window::Flags;
 
 mod localize;
+mod style_copy;
 mod widget_copy;
 mod window;
 
