@@ -36,6 +36,9 @@ once_cell = "1.19.0"
 emojis = {version = "0.6.3", features = ["serde"]}
 regex = "1.10.4"
 serde_json = "1.0.122"
+
 bitflags = { version = "2.6.0", features = ["serde"] }
 aho-corasick = "1.1.3"
+
+
 fluent-langneg = "0.14.1"

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MPL-2.0
+// 2024 - Dominic Gerhauser and contributors
+use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
 use std::collections::VecDeque;
 
 use bitflags::bitflags;
