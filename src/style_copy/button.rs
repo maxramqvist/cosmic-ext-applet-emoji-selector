@@ -194,6 +194,6 @@ pub fn pressed(theme: &Theme, focused: bool, selected: bool, style: Button) -> A
     });
 }
 
-pub fn selection_background(theme: &Theme) -> Background {
+pub fn _selection_background(theme: &Theme) -> Background {
     Background::Color(theme.cosmic().primary.base.into())
 }

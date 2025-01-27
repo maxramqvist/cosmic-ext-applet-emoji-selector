@@ -4,7 +4,7 @@
 
 ### `SkinToneMode`
 
-Skin tones are represented as a `uint32`.
+Skin tones are represented as an `uint32`.
 If bits 8 to 28 are set, the skin tone is matched exactly.
 Bits 28 and 29 only change the filter mode and do not correspond to a skin tone.
 `NO_SKIN` is used to represent emojis without a skin tone, and `OTHER` is used for any future skin tones.
@@ -60,7 +60,7 @@ Represented as bitflags, which can be `NONE` | `COPY` | `CLOSE` `APPEND` | `PRIV
 - `COPY`: Copies the emoji to the clipboard.
 - `CLOSE`: Closes the popup.
 - `APPEND`: Appends the emoji to the search input.
-- `PRIVATE`: Prevents the emoji from being added to the history.
+- `PRIVATE`: The emoji is not added to the history.
 
 
 ### `ColorButton`: `{color: Color, active: bool, skin_tone_mode: SkinToneMode}`
@@ -80,7 +80,7 @@ Filters emojis based on their skin tone.
 The default is `NO_SKIN | DEFAULT`.
 
 ### `left_click_action`, `right_click_action`, `middle_click_action`: `ClickMode`
-The action performed when clicking on an emoji with these respected mouse buttons.
+The action performed when clicking on an emoji with the respected mouse buttons.
 
 ### `font_family`: `string`
 The font used to render emojis.
@@ -95,4 +95,4 @@ Limits the emojis history size.
 Whether to show a preview of the currently selected emoji.
 
 ### `color_buttons`: `ColorButton[]` 
-``` ```
+A list of color buttons.

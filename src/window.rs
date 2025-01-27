@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 
-use crate::config::{Annotation, ClickMode, ColorButton, SkinToneMode};
+use crate::config::{Annotation, ClickMode, SkinToneMode};
 use crate::config::{Config, CONFIG_VERSION};
 #[allow(unused_imports)]
 use crate::fl;
 use crate::widget_copy;
+use aho_corasick::AhoCorasick;
 use cosmic::app::Core;
 use cosmic::iced;
 use cosmic::iced::wayland::popup::{destroy_popup, get_popup};
@@ -21,13 +22,13 @@ use cosmic::widget::{self};
 use cosmic::{cosmic_config, iced_core};
 use cosmic::{Apply, Element, Theme};
 use cosmic_time::Timeline;
-use regex::RegexBuilder;
 pub const ID: &str = "dev.dominiccgeh.CosmicAppletEmojiSelector";
 const ICON: &str = ID;
 pub struct Window {
     snap: widget_copy::scrollable::RelativeOffset,
     viewport: Option<widget_copy::scrollable::Viewport>,
     all_emojis: Vec<&'static emojis::Emoji>,
+    all_emojis_aho_corasick: AhoCorasick,
     emojis_filtered: Vec<&'static emojis::Emoji>,
     favorites_filtered: VecDeque<&'static emojis::Emoji>,
     annotations: HashMap<String, Annotation>,
@@ -46,6 +47,7 @@ pub struct Window {
 }
 #[derive(Clone, Debug)]
 pub enum Message {
+    // Config struct size 96B - Box<Config> 48B
     Config(Config),
     TogglePopup,
     PopupClosed(Id),
@@ -102,11 +104,17 @@ impl cosmic::Application for Window {
                 None => all_emojis.push(emoji),
             }
         }
+        let all_emojis_ac = AhoCorasick::builder()
+            .match_kind(aho_corasick::MatchKind::LeftmostLongest)
+            .build(&all_emojis)
+            .unwrap();
+
         let emojis_filtered = all_emojis.iter().copied().collect();
         let window = Window {
             snap: Default::default(),
             viewport: None,
             all_emojis,
+            all_emojis_aho_corasick: all_emojis_ac,
             emojis_filtered,
             favorites_filtered: VecDeque::new(),
             font_family,
@@ -229,7 +237,6 @@ impl cosmic::Application for Window {
                 }
                 if click_mode.intersects(ClickMode::COPY) {
                     if !click_mode.intersects(ClickMode::PRIVATE) {
-                        // todo dedup
                         let mut last_used = self.config.last_used.clone();
                         if let Some(idx) = last_used.iter().position(|&e| e == emoji) {
                             last_used.remove(idx);
@@ -258,7 +265,14 @@ impl cosmic::Application for Window {
                 return Command::batch(commands);
             }
             Message::Search(search) => {
+                let mut search_filtered = String::with_capacity(search.len());
+                self.all_emojis_aho_corasick.replace_all_with(
+                    &search,
+                    &mut search_filtered,
+                    |_, _, _| true,
+                );
                 self.search = search;
+
                 self.emoji_hovered = None;
                 self.emojis_filtered.clear();
                 self.favorites_filtered.clear();
@@ -287,8 +301,8 @@ impl cosmic::Application for Window {
                         };
 
                     let emojis_in_conf = self.config.last_used.contains(emoji);
-                    if self.search.is_empty()
-                        || self.emoji_name_localized(emoji).contains(&self.search)
+                    if search_filtered.is_empty()
+                        || self.emoji_name_localized(emoji).contains(&search_filtered)
                     {
                         if config_skin_tone_contains_emoji {
                             self.emojis_filtered.push(emoji);
@@ -409,7 +423,7 @@ fn color_button_apperance(
 }
 
 impl Window {
-    fn emoji_name_localized<'a>(&'a self, emoji: &'static emojis::Emoji) -> &'a str {
+    fn emoji_name_localized(&self, emoji: &'static emojis::Emoji) -> &str {
         let emoji_name = self
             .annotations
             .get(&emoji.as_str().replace(&['\u{fe0f}', '\u{fe0e}'], ""))
@@ -436,7 +450,7 @@ impl Window {
     fn emojis_flex(
         &self,
         emojis_list: impl IntoIterator<Item = &'static emojis::Emoji>,
-    ) -> widget::FlexRow<Message> {
+    ) -> widget::FlexRow<'static, Message> {
         let emojis_list = emojis_list.into_iter();
         let mut emojis_view = Vec::with_capacity(emojis_list.size_hint().0);
 
@@ -444,7 +458,6 @@ impl Window {
         let right_click_action = self.config.right_click_action;
         let middle_click_action = self.config.middle_click_action;
         for emoji in emojis_list {
-            // dup 1
             let emoji_txt = widget::text(emoji.as_str())
                 .size(25)
                 .width(35)
@@ -482,7 +495,7 @@ impl Window {
         flex_row
     }
 
-    fn search(&self) -> widget::TextInput<Message> {
+    fn search(&self) -> widget::TextInput<'_, Message> {
         let search = widget::search_input(fl!("search-for-emojis"), &self.search)
             .on_clear(Message::Search(String::new()))
             .id(self.text_input_id.clone())
@@ -492,7 +505,7 @@ impl Window {
         search
     }
 
-    fn group_icons(&self) -> widget::Row<Message> {
+    fn group_icons(&self) -> widget::Row<'static, Message> {
         let mut groups = widget::row::with_capacity(9).width(Length::Fill);
         use crate::style_copy::button;
         for group in emojis::Group::iter() {
@@ -528,7 +541,7 @@ impl Window {
         groups
     }
 
-    fn color_buttons(&self) -> widget::Row<Message> {
+    fn color_buttons(&self) -> widget::Row<'static, Message> {
         let color_buttons_conf = &self.config.color_buttons;
         let mut color_buttons = widget::row::with_capacity(color_buttons_conf.len());
         for (idx, color_button) in color_buttons_conf.iter().enumerate() {
@@ -566,7 +579,7 @@ impl Window {
         emoji_opt
     }
 
-    fn emojis_section(&self) -> widget::Container<Message, Theme> {
+    fn emojis_section(&self) -> widget::Container<'static, Message, Theme> {
         let mut emojis_section =
             widget::column::with_capacity(3).spacing(cosmic::theme::active().cosmic().space_xxs());
         if !self.favorites_filtered.is_empty() {
@@ -590,14 +603,13 @@ impl Window {
         emojis_section_container
     }
 
-    fn preview(&self) -> widget::Container<Message, Theme> {
+    fn preview(&self) -> widget::Container<'_, Message, Theme> {
         let preview_emoji_opt = self.emoji_selected();
         let mut preview_row = widget::row()
             .spacing(cosmic::theme::active().cosmic().space_xxs())
             .align_items(Alignment::Center);
         match preview_emoji_opt {
             Some(preview_emoji) => {
-                // dup 1
                 let emoji_txt = widget::text(preview_emoji.as_str())
                     .size(35)
                     .width(50)
@@ -610,19 +622,7 @@ impl Window {
                 preview_row = preview_row.push(emoji_txt);
                 let mut name_column = widget::column::with_capacity(2);
 
-                let mut emoji_name = self.emoji_name_localized(preview_emoji);
-
-                let emoji_name_len = emoji_name.len();
-                let cut_off_idx = emoji_name
-                    .char_indices()
-                    .nth(40)
-                    .map_or(emoji_name_len, |(i, _)| i);
-                emoji_name = emoji_name.get(..cut_off_idx).unwrap_or(emoji_name);
-                let emoji_name = if emoji_name_len == emoji_name.len() {
-                    Cow::from(emoji_name)
-                } else {
-                    Cow::from(emoji_name.to_owned() + "...")
-                };
+                let emoji_name = self.emoji_name_trimmed(preview_emoji);
 
                 name_column = name_column.push(widget::text::body(emoji_name));
                 if let Some(shortcode) = preview_emoji.shortcode() {
@@ -648,6 +648,23 @@ impl Window {
             .max_height(50)
             .center_y();
     }
+
+    fn emoji_name_trimmed(&self, preview_emoji: &'static emojis::Emoji) -> Cow<'_, str> {
+        let mut emoji_name = self.emoji_name_localized(preview_emoji);
+
+        let emoji_name_len = emoji_name.len();
+        let cut_off_idx = emoji_name
+            .char_indices()
+            .nth(40)
+            .map_or(emoji_name_len, |(i, _)| i);
+        emoji_name = emoji_name.get(..cut_off_idx).unwrap_or(emoji_name);
+        let emoji_name = if emoji_name_len == emoji_name.len() {
+            Cow::from(emoji_name)
+        } else {
+            Cow::from(emoji_name.to_owned() + "...")
+        };
+        emoji_name
+    }
 }
 macro_rules! icon {
     ($name:expr) => {{
@@ -657,7 +674,7 @@ macro_rules! icon {
 
 fn show_color_buttons(group: Option<emojis::Group>) -> bool {
     use emojis::Group::*;
-    return matches!(group, None | Some(PeopleAndBody | SmileysAndEmotion));
+    return matches!(group, None | Some(PeopleAndBody));
 }
 
 // todo icon cache
