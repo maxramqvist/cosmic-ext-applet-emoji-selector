@@ -1,6 +1,9 @@
+// SPDX-License-Identifier: MPL-2.0
+// 2024 - Dominic Gerhauser and contributors
+
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::{env, fs, io};
+use std::{env, fs};
 
 use crate::window::Window;
 
@@ -8,7 +11,6 @@ use config::{Annotation, Config, CONFIG_VERSION};
 use cosmic::cosmic_config;
 use cosmic::cosmic_config::CosmicConfigEntry;
 mod config;
-use localize::LANGUAGE_LOADER;
 use window::Flags;
 
 mod localize;
@@ -19,11 +21,6 @@ mod window;
 fn main() -> cosmic::iced::Result {
     localize::localize();
 
-    let current_languages: Vec<_> = LANGUAGE_LOADER
-        .current_languages()
-        .into_iter()
-        .map(|l| l.to_string())
-        .collect();
     let mut annotations = HashMap::new();
     let xdg_data_dir = env::var("XDG_DATA_DIRS").unwrap_or_else(|e| {
         eprintln!("failed to read `XDG_DATA_DIRS`: {e}");
@@ -33,30 +30,63 @@ fn main() -> cosmic::iced::Result {
         let id_path: PathBuf = [path, window::ID, "i18n-json"].iter().collect();
         id_path.exists() && id_path.is_dir()
     });
+    let mut requested_languages: Vec<_> =
+        i18n_embed::DesktopLanguageRequester::requested_languages();
+    let requested_languages = fluent_langneg::convert_vec_str_to_langids_lossy(
+        requested_languages.drain(..).map(|lang| lang.to_string()),
+    );
+
+    let default_language: fluent_langneg::LanguageIdentifier = "en".parse().unwrap();
     if let Some(dir) = xdg_data_dir {
-        for lang_code in current_languages.into_iter().rev() {
-            let file_path = "annotations.json";
-            let annotation_file_path: PathBuf =
-                [dir, window::ID, "i18n-json", &lang_code, file_path]
+        let i18n_json_dir: PathBuf = [dir, window::ID, "i18n-json"].iter().collect();
+        let locales_in_dir = match fs::read_dir(i18n_json_dir) {
+            Ok(dir_iter) => dir_iter
+                .filter_map(|file_res| match file_res {
+                    Ok(file) => Some(
+                        file.file_name()
+                            .to_str()
+                            .expect("filename is invalid utf8")
+                            .to_string(),
+                    ),
+                    Err(err) => {
+                        eprintln!("could not read file: {err}");
+                        None
+                    }
+                })
+                .collect(),
+            Err(err) => {
+                eprintln!("could not read directory: {dir}: err: {err}",);
+                Vec::new()
+            }
+        };
+
+        let available_languages = fluent_langneg::convert_vec_str_to_langids_lossy(locales_in_dir);
+        let supported_languages = fluent_langneg::negotiate_languages(
+            &requested_languages,
+            &available_languages,
+            Some(&default_language),
+            fluent_langneg::NegotiationStrategy::Filtering,
+        );
+        for lang_code in supported_languages.into_iter().rev() {
+            let lang_code = lang_code.to_string();
+            let annotation_file: PathBuf =
+                [dir, window::ID, "i18n-json", &lang_code, "annotations.json"]
                     .iter()
                     .collect();
-            let mut annotation_file_reader: Box<dyn io::Read> = match fs::File::open(
-                &annotation_file_path,
-            ) {
-                Ok(reader) => Box::new(reader),
-                Err(out_err) => {
-                    eprintln!("could not read annotations.json file: {annotation_file_path:?} - {lang_code} - {out_err}");
+            let file_contents = match fs::read(&annotation_file) {
+                Ok(ok) => ok,
+                Err(e) => {
+                    eprintln!("could not read annotations.json file: {annotation_file:?} - {lang_code} - {e}");
                     continue;
                 }
             };
-            // todo not use reader
-            annotation_file_reader = Box::new(io::BufReader::new(annotation_file_reader));
-            let annotations_locale: HashMap<String, Annotation> = match serde_json::from_reader(
-                annotation_file_reader,
+
+            let annotations_locale: HashMap<String, Annotation> = match serde_json::from_slice(
+                &file_contents,
             ) {
                 Ok(ok) => ok,
                 Err(e) => {
-                    eprintln!("could not parse annotations.json file: {annotation_file_path:?} - {lang_code} - {e}");
+                    eprintln!("could not parse annotations.json file: {annotation_file:?} {lang_code} - {e}");
                     continue;
                 }
             };
