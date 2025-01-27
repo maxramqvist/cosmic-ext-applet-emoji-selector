@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 // 2024 - Dominic Gerhauser and contributors
-use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
-use std::collections::VecDeque;
-
 use bitflags::bitflags;
 use cosmic::cosmic_config::{self, cosmic_config_derive::CosmicConfigEntry, CosmicConfigEntry};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 pub const CONFIG_VERSION: u64 = 1;
 
 #[derive(Clone, CosmicConfigEntry, Debug, Deserialize, PartialEq, Serialize)]
