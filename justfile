@@ -5,7 +5,7 @@ id := 'dev.dominiccgeh.CosmicAppletEmojiSelector'
 
 
 build-release *args:
-    cargo build --release {{features}} {{args}} 
+    cargo build --release {{args}} 
 
 # Installs files into the system
 install: 
