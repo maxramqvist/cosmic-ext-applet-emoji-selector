@@ -11,7 +11,7 @@ sudo just install
 # Config
 The configuration directory is `~/.config/cosmic/dev.dominiccgeh.CosmicAppletEmojiSelector/v1/`.
 In addition, the default schema can be installed with `just install-schema`. 
-More documentation is provided [here](CONIFG.md).
+More documentation is provided [here](CONFIG.md).
 
 # Emoji font
 `Noto Color Emoji` is the default emoji font and is required by default. 
