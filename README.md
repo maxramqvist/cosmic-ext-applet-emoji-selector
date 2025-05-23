@@ -1,4 +1,4 @@
-![screenshot-2024-03-31-08-18-52](https://github.com/leb-kuchen/cosmic-applet-emoji-selector/assets/102472435/496eae10-a889-46c4-b802-08c0aa4df078)
+![Screenshot_2025-05-23_22-39-32](https://github.com/user-attachments/assets/dbc9f0fe-f99b-4eb0-bfcc-c869207033e0)
 
 # Install 
 ```sh
