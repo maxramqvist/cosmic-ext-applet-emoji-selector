@@ -26,6 +26,8 @@ pub struct Config {
     pub show_preview: bool,
     #[serde(default)]
     pub skin_tone_mode: SkinToneMode,
+    #[serde(default)]
+    pub emoji_ordering: EmojiOrdering,
 }
 
 impl Default for Config {
@@ -58,8 +60,15 @@ impl Default for Config {
             right_click_action: ClickMode::APPEND_SEARCH | ClickMode::COPY,
             middle_click_action: ClickMode::COPY,
             skin_tone_mode: SkinToneMode::DEFAULT | SkinToneMode::NO_SKIN,
+            emoji_ordering: EmojiOrdering::default(),
         }
     }
+}
+#[derive(Copy, Serialize, Deserialize, PartialEq, Hash, Debug, Default, Clone)]
+pub enum EmojiOrdering {
+    #[default]
+    Google,
+    Unicode,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Hash, Debug, Default, Clone)]

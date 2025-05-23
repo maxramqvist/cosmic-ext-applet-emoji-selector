@@ -5,18 +5,21 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::{env, fs};
 
-use crate::window::Window;
+use crate::app::Window;
 
 use config::{Annotation, Config, CONFIG_VERSION};
 use cosmic::cosmic_config;
 use cosmic::cosmic_config::CosmicConfigEntry;
 mod config;
-use window::Flags;
+use app::Flags;
 
+mod app;
+mod google_ordering;
+mod init;
 mod localize;
 mod style_copy;
+mod utils;
 mod widget_copy;
-mod window;
 
 fn main() -> cosmic::iced::Result {
     localize::localize();
@@ -27,7 +30,7 @@ fn main() -> cosmic::iced::Result {
         "/usr/share:/usr/locale/share".to_string()
     });
     let xdg_data_dir = xdg_data_dir.split(':').find(|path| {
-        let id_path: PathBuf = [path, window::ID, "i18n-json"].iter().collect();
+        let id_path: PathBuf = [path, app::ID, "i18n-json"].iter().collect();
         id_path.exists() && id_path.is_dir()
     });
     let mut requested_languages: Vec<_> =
@@ -38,7 +41,7 @@ fn main() -> cosmic::iced::Result {
 
     let default_language: fluent_langneg::LanguageIdentifier = "en".parse().unwrap();
     if let Some(dir) = xdg_data_dir {
-        let i18n_json_dir: PathBuf = [dir, window::ID, "i18n-json"].iter().collect();
+        let i18n_json_dir: PathBuf = [dir, app::ID, "i18n-json"].iter().collect();
         let locales_in_dir = match fs::read_dir(i18n_json_dir) {
             Ok(dir_iter) => dir_iter
                 .filter_map(|file_res| match file_res {
@@ -70,7 +73,7 @@ fn main() -> cosmic::iced::Result {
         for lang_code in supported_languages.into_iter().rev() {
             let lang_code = lang_code.to_string();
             let annotation_file: PathBuf =
-                [dir, window::ID, "i18n-json", &lang_code, "annotations.json"]
+                [dir, app::ID, "i18n-json", &lang_code, "annotations.json"]
                     .iter()
                     .collect();
             let file_contents = match fs::read(&annotation_file) {
@@ -95,7 +98,7 @@ fn main() -> cosmic::iced::Result {
         }
     }
 
-    let (config_handler, config) = match cosmic_config::Config::new(window::ID, CONFIG_VERSION) {
+    let (config_handler, config) = match cosmic_config::Config::new(app::ID, CONFIG_VERSION) {
         Ok(config_handler) => {
             let config = match Config::get_entry(&config_handler) {
                 Ok(ok) => ok,
