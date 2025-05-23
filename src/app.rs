@@ -8,7 +8,7 @@ use crate::config::{Annotation, ClickMode, SkinToneMode};
 use crate::config::{Config, CONFIG_VERSION};
 #[allow(unused_imports)]
 use crate::fl;
-use crate::widget_copy;
+use crate::{utils, widget_copy};
 use aho_corasick::AhoCorasick;
 use cosmic::app::Core;
 use cosmic::iced;
@@ -30,7 +30,6 @@ const ICON: &str = ID;
 pub struct Window {
     snap: widget_copy::scrollable::RelativeOffset,
     viewport: Option<widget_copy::scrollable::Viewport>,
-    all_emojis: Vec<&'static emojis::Emoji>,
     all_emojis_aho_corasick: AhoCorasick,
     emojis_filtered: Vec<&'static emojis::Emoji>,
     favorites_filtered: VecDeque<&'static emojis::Emoji>,
@@ -50,8 +49,7 @@ pub struct Window {
 }
 #[derive(Clone, Debug)]
 pub enum Message {
-    // Config struct size 96B - Box<Config> 48B
-    Config(Config),
+    Config(Box<Config>),
     TogglePopup,
     PopupClosed(Id),
     Group(Option<emojis::Group>),
@@ -64,7 +62,7 @@ pub enum Message {
     Enter,
     ArrowRight,
     ArrowLeft,
-    ScrollViewport(widget_copy::scrollable::Viewport),
+    ScrollViewport(Box<widget_copy::scrollable::Viewport>),
     _ScrollPixels(f32),
     Snap(f32),
     ToggleColorButton(usize),
@@ -100,23 +98,20 @@ impl cosmic::Application for Window {
         let font_family =
             iced::Font::with_name(Box::leak(config.font_family.clone().into_boxed_str()));
 
-        let mut all_emojis = Vec::new();
-        for emoji in emojis::iter() {
-            match emoji.skin_tones() {
-                Some(skin_tones) => all_emojis.extend(skin_tones),
-                None => all_emojis.push(emoji),
-            }
-        }
+        let mut all_emojis = Vec::from_iter(utils::all_emojis(config.emoji_ordering));
+
+        all_emojis.shrink_to_fit();
         let all_emojis_ac = AhoCorasick::builder()
             .match_kind(aho_corasick::MatchKind::LeftmostLongest)
             .build(&all_emojis)
             .unwrap();
+        let mut annotations = flags.annotations;
+        annotations.shrink_to_fit();
 
-        let emojis_filtered = all_emojis.iter().copied().collect();
+        let emojis_filtered = all_emojis.to_vec();
         let window = Window {
             snap: Default::default(),
             viewport: None,
-            all_emojis,
             all_emojis_aho_corasick: all_emojis_ac,
             emojis_filtered,
             favorites_filtered: VecDeque::new(),
@@ -131,7 +126,7 @@ impl cosmic::Application for Window {
             timeline: Timeline::new(),
             emoji_hovered: None,
             text_input_id: widget::Id::unique(),
-            annotations: flags.annotations,
+            annotations: annotations,
         };
 
         (
@@ -180,7 +175,7 @@ impl cosmic::Application for Window {
             }
             Message::ScrollViewport(viewport) => {
                 self.snap = viewport.relative_offset();
-                self.viewport = Some(viewport);
+                self.viewport = Some(*viewport);
             }
             Message::Snap(snap) => {
                 self.snap.x = (self.snap.x + snap).clamp(0.0, 1.0);
@@ -199,13 +194,13 @@ impl cosmic::Application for Window {
                 }
             }
             Message::Config(config) => {
-                if config != self.config {
+                if *config != self.config {
                     if config.font_family != self.config.font_family {
                         self.font_family = iced::Font::with_name(Box::leak(
                             config.font_family.clone().into_boxed_str(),
                         ));
                     }
-                    self.config = config
+                    self.config = *config
                 }
             }
             Message::Frame(now) => self.timeline.now(now),
@@ -274,6 +269,7 @@ impl cosmic::Application for Window {
                     &mut search_filtered,
                     |_, _, _| true,
                 );
+
                 self.search = search;
 
                 self.emoji_hovered = None;
@@ -288,11 +284,10 @@ impl cosmic::Application for Window {
                 } else {
                     SkinToneMode::new
                 };
-                for emoji in &self.all_emojis {
-                    if Some(emoji.group()) != self.selected_group && !self.selected_group.is_none()
-                    {
-                        continue;
-                    }
+                for ref emoji in utils::all_emojis_in_optional_group(
+                    self.config.emoji_ordering,
+                    self.selected_group,
+                ) {
                     let emjoji_skin_tone_mode = emoji
                         .skin_tone()
                         .map_or(SkinToneMode::NO_SKIN, skin_tones_mode_new);
@@ -320,6 +315,8 @@ impl cosmic::Application for Window {
 
             Message::EmojiHovered(emoji) => self.emoji_hovered = Some(emoji),
             Message::Exit => {
+                self.emojis_filtered.shrink_to_fit();
+                self.favorites_filtered.shrink_to_fit();
                 if let Some(p) = self.popup.take() {
                     return destroy_popup(p);
                 }
@@ -336,17 +333,9 @@ impl cosmic::Application for Window {
             Message::FocusTextInput => {
                 return widget::text_input::focus(self.text_input_id.clone());
             }
-            Message::ArrowRight => {
-                let mut key = key_from_group(self.selected_group);
-                key = if key >= b'9' { b'0' } else { key + 1 };
-                return self.update_group(group_from_key(key));
-            }
-            Message::ArrowLeft => {
-                let mut key = key_from_group(self.selected_group);
-                key = if key <= b'0' { b'9' } else { key - 1 };
-                return self.update_group(group_from_key(key));
-            }
-        }
+            Message::ArrowRight => return self.nav_move_right(),
+            Message::ArrowLeft => return self.nav_move_left(),
+        };
         Command::none()
     }
 
@@ -390,7 +379,7 @@ impl cosmic::Application for Window {
                     update.keys, update.errors
                 );
             }
-            Message::Config(update.config)
+            Message::Config(Box::new(update.config))
         });
 
         let timeline = self
@@ -398,7 +387,7 @@ impl cosmic::Application for Window {
             .as_subscription()
             .map(|(_, now)| Message::Frame(now));
 
-        Subscription::batch(vec![config, timeline, navigation_subscription()])
+        Subscription::batch(vec![config, timeline, nav::subscription()])
     }
 
     fn style(&self) -> Option<<Theme as application::StyleSheet>::Style> {
@@ -406,30 +395,13 @@ impl cosmic::Application for Window {
     }
 }
 
-fn color_button_apperance(
-    color: [f32; 4],
-    selected: Option<bool>,
-    theme: &Theme,
-) -> widget::button::Appearance {
-    let is_selected = selected.is_some_and(|s| s);
-    return widget::button::Appearance {
-        background: Some(iced::Color::from(color).into()),
-        border_radius: theme.cosmic().radius_s().into(),
-        border_width: if is_selected { 2.0 } else { 0.0 },
-        border_color: if is_selected {
-            theme.cosmic().accent.border.into()
-        } else {
-            Default::default()
-        },
-        ..Default::default()
-    };
-}
+mod style;
 
 impl Window {
     fn emoji_name_localized(&self, emoji: &'static emojis::Emoji) -> &str {
         let emoji_name = self
             .annotations
-            .get(&emoji.as_str().replace(&['\u{fe0f}', '\u{fe0e}'], ""))
+            .get(&emoji.as_str().replace(['\u{fe0f}', '\u{fe0e}'], ""))
             .and_then(|annotation| annotation.tts.first().map(String::as_str))
             .unwrap_or_else(|| emoji.name());
         emoji_name
@@ -471,20 +443,21 @@ impl Window {
                 .horizontal_alignment(alignment::Horizontal::Center)
                 .vertical_alignment(alignment::Vertical::Center);
 
-            let mut emoji_btn = widget::button(emoji_txt).style(cosmic::theme::Button::Transparent);
+            let mut emoji_btn: widget::Button<'_, Message> =
+                widget::button(emoji_txt).style(cosmic::theme::Button::Transparent);
             if left_click_action != ClickMode::NONE {
                 emoji_btn = emoji_btn.on_press(Message::EmojiCopy(emoji, left_click_action));
             }
             let mut emoji_mouse_area =
-                widget::mouse_area(emoji_btn).on_mouse_enter(Message::EmojiHovered(emoji));
+                widget_copy::MouseArea::new(emoji_btn).on_enter(Message::EmojiHovered(emoji));
 
             if right_click_action != ClickMode::NONE {
-                emoji_mouse_area = widget::mouse_area(emoji_mouse_area)
-                    .on_right_release(Message::EmojiCopy(emoji, right_click_action))
+                emoji_mouse_area = emoji_mouse_area
+                    .on_right_release(Message::EmojiCopy(emoji, right_click_action));
             }
             if middle_click_action != ClickMode::NONE {
-                emoji_mouse_area = widget::mouse_area(emoji_mouse_area)
-                    .on_middle_release(Message::EmojiCopy(emoji, middle_click_action))
+                emoji_mouse_area = emoji_mouse_area
+                    .on_middle_release(Message::EmojiCopy(emoji, middle_click_action));
             }
             emojis_view.push(emoji_mouse_area.into());
         }
@@ -552,14 +525,14 @@ impl Window {
             let active = color_button.active;
             let button_style = cosmic::theme::Button::Custom {
                 active: Box::new(move |_selected, theme| {
-                    color_button_apperance(color, Some(active), theme)
+                    style::color_button_apperance(color, Some(active), theme)
                 }),
-                disabled: Box::new(move |theme| color_button_apperance(color, None, theme)),
+                disabled: Box::new(move |theme| style::color_button_apperance(color, None, theme)),
                 hovered: Box::new(move |_selected, theme| {
-                    color_button_apperance(color, Some(active), theme)
+                    style::color_button_apperance(color, Some(active), theme)
                 }),
                 pressed: Box::new(move |_selected, theme| {
-                    color_button_apperance(color, Some(active), theme)
+                    style::color_button_apperance(color, Some(active), theme)
                 }),
             };
 
@@ -599,7 +572,7 @@ impl Window {
             .id(self.scrollable_id.clone())
             .height(Length::Fill)
             .width(Length::Fill)
-            .on_scroll(Message::ScrollViewport)
+            .on_scroll(|in_0| Message::ScrollViewport(Box::new(in_0)))
             .apply(widget::container)
             .width(Length::Fill)
             .height(500);
@@ -646,10 +619,11 @@ impl Window {
             preview_row = preview_row.push(color_buttons);
         }
         // use cosmic::prelude::ElementExt;
-        return widget::container(preview_row)
+        let center_y = widget::container(preview_row)
             .height(50)
             .max_height(50)
             .center_y();
+        return center_y;
     }
 
     fn emoji_name_trimmed(&self, preview_emoji: &'static emojis::Emoji) -> Cow<'_, str> {
@@ -667,6 +641,18 @@ impl Window {
             Cow::from(emoji_name.to_owned() + "...")
         };
         emoji_name
+    }
+
+    fn nav_move_right(&mut self) -> Command<cosmic::app::Message<Message>> {
+        let mut key = nav::key_from_group(self.selected_group);
+        key = if key >= b'9' { b'0' } else { key + 1 };
+        return self.update_group(nav::group_from_key(key));
+    }
+
+    fn nav_move_left(&mut self) -> Command<cosmic::app::Message<Message>> {
+        let mut key = nav::key_from_group(self.selected_group);
+        key = if key <= b'0' { b'9' } else { key - 1 };
+        return self.update_group(nav::group_from_key(key));
     }
 }
 macro_rules! icon {
@@ -696,39 +682,7 @@ fn group_icon(group: emojis::Group) -> &'static str {
     icon
 }
 
-fn group_from_key(key: u8) -> Option<emojis::Group> {
-    use emojis::Group::*;
-    let group = match key {
-        b'1' => SmileysAndEmotion,
-        b'2' => PeopleAndBody,
-        b'3' => AnimalsAndNature,
-        b'4' => FoodAndDrink,
-        b'5' => TravelAndPlaces,
-        b'6' => Activities,
-        b'7' => Objects,
-        b'8' => Symbols,
-        b'9' => Flags,
-        _ => return None,
-    };
-    return Some(group);
-}
-fn key_from_group(group: Option<emojis::Group>) -> u8 {
-    use emojis::Group::*;
-    let group = match group {
-        Some(SmileysAndEmotion) => b'1',
-        Some(PeopleAndBody) => b'2',
-        Some(AnimalsAndNature) => b'3',
-        Some(FoodAndDrink) => b'4',
-        Some(TravelAndPlaces) => b'5',
-        Some(Activities) => b'6',
-        Some(Objects) => b'7',
-        Some(Symbols) => b'8',
-        Some(Flags) => b'9',
-        None => b'0',
-    };
-    return group;
-}
-
+mod nav;
 fn group_string(group: emojis::Group) -> String {
     match group {
         emojis::Group::SmileysAndEmotion => fl!("smileys-and-emotion"),
@@ -741,50 +695,4 @@ fn group_string(group: emojis::Group) -> String {
         emojis::Group::Symbols => fl!("symbols"),
         emojis::Group::Flags => fl!("flags"),
     }
-}
-
-fn navigation_subscription() -> Subscription<Message> {
-    use cosmic::iced::event;
-    cosmic::iced_futures::event::listen_with(|event, status| {
-        if status == event::Status::Captured {
-            return None;
-        }
-        let event::Event::Keyboard(key_event) = event else {
-            return None;
-        };
-
-        let cosmic::iced_runtime::keyboard::Event::KeyReleased { key, .. } = key_event else {
-            return None;
-        };
-        match key {
-            cosmic::iced_runtime::keyboard::Key::Named(key_named) => match key_named {
-                cosmic::iced::keyboard::key::Named::Escape => return Some(Message::Exit),
-                cosmic::iced::keyboard::key::Named::ArrowRight => return Some(Message::ArrowRight),
-                cosmic::iced::keyboard::key::Named::ArrowLeft => return Some(Message::ArrowLeft),
-                cosmic::iced::keyboard::key::Named::ArrowDown => {
-                    return Some(Message::_ScrollPixels(-50.0))
-                }
-                cosmic::iced::keyboard::key::Named::ArrowUp => {
-                    return Some(Message::_ScrollPixels(50.0))
-                }
-
-                cosmic::iced::keyboard::key::Named::End => return Some(Message::Snap(1.0)),
-                cosmic::iced::keyboard::key::Named::Home => return Some(Message::Snap(-1.0)),
-                cosmic::iced::keyboard::key::Named::PageDown => return Some(Message::Snap(0.15)),
-                cosmic::iced::keyboard::key::Named::PageUp => return Some(Message::Snap(-0.15)),
-
-                _ => {}
-            },
-            cosmic::iced_runtime::keyboard::Key::Character(key_character) => {
-                if key_character == "/" {
-                    return Some(Message::FocusTextInput);
-                }
-                if key_character.len() == 1 && key_character.as_bytes()[0].is_ascii_digit() {
-                    return Some(Message::Group(group_from_key(key_character.as_bytes()[0])));
-                }
-            }
-            _ => {}
-        }
-        return None;
-    })
 }

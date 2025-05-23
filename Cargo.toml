@@ -3,6 +3,18 @@ name = "cosmic-applet-emoji-selector"
 version = "0.1.4"
 edition = "2021"
 
+# not interested in these lints
+[lints.clippy]
+needless_return = "allow"
+let_and_return = "allow"
+too_many_arguments = "allow"
+unusual_byte_groupings = "allow"
+mixed_case_hex_literals = "allow"
+needless_lifetimes = "allow"
+type_complexity = "allow"
+redundant_field_names = "allow"
+uninlined_format_args = "allow"
+
 [features]
 wayland = []
 a11y = []
