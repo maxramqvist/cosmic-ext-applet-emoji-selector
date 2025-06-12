@@ -15,7 +15,6 @@ use app::Flags;
 
 mod app;
 mod google_ordering;
-mod init;
 mod localize;
 mod style_copy;
 mod utils;
