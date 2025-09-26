@@ -76,6 +76,7 @@ pub struct Flags {
     pub config_handler: Option<cosmic_config::Config>,
     pub config: Config,
     pub annotations: HashMap<String, Annotation>,
+    pub toggle_on_start: bool,
 }
 
 impl cosmic::Application for Window {
@@ -133,10 +134,16 @@ impl cosmic::Application for Window {
             annotations: annotations,
         };
 
-        (
-            window,
-            cosmic::command::message(Message::Search(String::new())),
-        )
+        let initial_command = if flags.toggle_on_start {
+            Command::batch([
+                cosmic::command::message(Message::Search(String::new())),
+                cosmic::command::message(Message::TogglePopup),
+            ])
+        } else {
+            cosmic::command::message(Message::Search(String::new()))
+        };
+
+        (window, initial_command)
     }
 
     fn on_close_requested(&self, id: window::Id) -> Option<Message> {

@@ -21,6 +21,10 @@ mod utils;
 mod widget_copy;
 
 fn main() -> cosmic::iced::Result {
+    // Check for command line arguments
+    let args: Vec<String> = env::args().collect();
+    let toggle_requested = args.iter().any(|arg| arg == "--toggle");
+
     localize::localize();
 
     let mut annotations = HashMap::new();
@@ -117,6 +121,7 @@ fn main() -> cosmic::iced::Result {
         config_handler,
         config,
         annotations,
+        toggle_on_start: toggle_requested,
     };
     cosmic::applet::run::<Window>(true, flags)
 }
