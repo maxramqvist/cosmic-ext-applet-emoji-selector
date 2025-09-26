@@ -13,6 +13,9 @@ The configuration directory is `~/.config/cosmic/dev.dominiccgeh.CosmicAppletEmo
 In addition, the default schema can be installed with `just install-schema`. 
 More documentation is provided [here](CONFIG.md).
 
+# Usage
+After installation a smiling emoji icon will appear in the applet tray. Click it, select an emoji. The emoji is now in the clipboard so you can paste it into wherever you want.
+
 # Emoji font
 `Noto Color Emoji` is the default emoji font and is required by default. 
 The default can be changed in `~/.config/cosmic/dev.dominiccgeh.CosmicAppletEmojiSelector/v1/font_family`.
