@@ -58,7 +58,7 @@ pub(crate) fn google_emojis() -> impl Iterator<Item = &'static emojis::Emoji> {
 fn google_emojis_internal(
     slice: &'static [&'static str],
 ) -> impl Iterator<Item = &'static emojis::Emoji> {
-    slice.iter().map(|&emoji| emojis::get(emoji).unwrap())
+    slice.iter().filter_map(|&emoji| emojis::get(emoji))
 }
 pub(crate) fn google_emojis_in_group(
     group: emojis::Group,

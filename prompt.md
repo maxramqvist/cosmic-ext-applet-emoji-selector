@@ -1,7 +1,7 @@
 ## Goals
-- [ ] Implement fuzzy search for emojis
-- [ ] Open with shortcut key. Preferable Super+Shift+e
-- [ ] Better sorting and ordering of emojis. Use this repo for reference: https://github.com/googlefonts/emoji-metadata
+- [x] Implement fuzzy search for emojis
+- [ ] Open with shortcut key. Preferable Super+Shift+e. This doesnt work but might be because something missing in COSMIC DE apis.
+- [x] Better sorting and ordering of emojis. Use this repo for reference: https://github.com/googlefonts/emoji-metadata
 
 ## Technical References
 
