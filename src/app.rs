@@ -10,6 +10,8 @@ use crate::config::{Config, CONFIG_VERSION};
 use crate::fl;
 use crate::{utils, widget_copy};
 use aho_corasick::AhoCorasick;
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use cosmic::app::Core;
 use cosmic::iced;
 use cosmic::iced::wayland::popup::{destroy_popup, get_popup};
@@ -31,6 +33,7 @@ pub struct Window {
     snap: widget_copy::scrollable::RelativeOffset,
     viewport: Option<widget_copy::scrollable::Viewport>,
     all_emojis_aho_corasick: AhoCorasick,
+    fuzzy_matcher: SkimMatcherV2,
     emojis_filtered: Vec<&'static emojis::Emoji>,
     favorites_filtered: VecDeque<&'static emojis::Emoji>,
     annotations: HashMap<String, Annotation>,
@@ -113,6 +116,7 @@ impl cosmic::Application for Window {
             snap: Default::default(),
             viewport: None,
             all_emojis_aho_corasick: all_emojis_ac,
+            fuzzy_matcher: SkimMatcherV2::default(),
             emojis_filtered,
             favorites_filtered: VecDeque::new(),
             font_family,
@@ -284,24 +288,23 @@ impl cosmic::Application for Window {
                 } else {
                     SkinToneMode::new
                 };
-                for ref emoji in utils::all_emojis_in_optional_group(
-                    self.config.emoji_ordering,
-                    self.selected_group,
-                ) {
-                    let emjoji_skin_tone_mode = emoji
-                        .skin_tone()
-                        .map_or(SkinToneMode::NO_SKIN, skin_tones_mode_new);
-                    let config_skin_tone_contains_emoji =
-                        if skin_tones_exact || skin_tones_intersect {
-                            skin_tones_config.intersects(emjoji_skin_tone_mode)
-                        } else {
-                            skin_tones_config.contains(emjoji_skin_tone_mode)
-                        };
 
-                    let emojis_in_conf = self.config.last_used.contains(emoji);
-                    if search_filtered.is_empty()
-                        || self.emoji_name_localized(emoji).contains(&search_filtered)
-                    {
+                if search_filtered.is_empty() {
+                    for ref emoji in utils::all_emojis_in_optional_group(
+                        self.config.emoji_ordering,
+                        self.selected_group,
+                    ) {
+                        let emjoji_skin_tone_mode = emoji
+                            .skin_tone()
+                            .map_or(SkinToneMode::NO_SKIN, skin_tones_mode_new);
+                        let config_skin_tone_contains_emoji =
+                            if skin_tones_exact || skin_tones_intersect {
+                                skin_tones_config.intersects(emjoji_skin_tone_mode)
+                            } else {
+                                skin_tones_config.contains(emjoji_skin_tone_mode)
+                            };
+
+                        let emojis_in_conf = self.config.last_used.contains(emoji);
                         if config_skin_tone_contains_emoji {
                             self.emojis_filtered.push(emoji);
                         }
@@ -309,6 +312,58 @@ impl cosmic::Application for Window {
                             self.favorites_filtered.push_back(emoji);
                         }
                     }
+                } else {
+                    let mut scored_emojis: Vec<(&'static emojis::Emoji, i64)> = Vec::new();
+                    let mut scored_favorites: Vec<(&'static emojis::Emoji, i64)> = Vec::new();
+
+                    for ref emoji in utils::all_emojis_in_optional_group(
+                        self.config.emoji_ordering,
+                        self.selected_group,
+                    ) {
+                        let emjoji_skin_tone_mode = emoji
+                            .skin_tone()
+                            .map_or(SkinToneMode::NO_SKIN, skin_tones_mode_new);
+                        let config_skin_tone_contains_emoji =
+                            if skin_tones_exact || skin_tones_intersect {
+                                skin_tones_config.intersects(emjoji_skin_tone_mode)
+                            } else {
+                                skin_tones_config.contains(emjoji_skin_tone_mode)
+                            };
+
+                        let emojis_in_conf = self.config.last_used.contains(emoji);
+                        let emoji_name = self.emoji_name_localized(emoji);
+
+                        let mut best_score = None;
+
+                        if let Some(score) = self.fuzzy_matcher.fuzzy_match(emoji_name, &search_filtered) {
+                            best_score = Some(score);
+                        }
+
+                        if let Some(shortcode) = emoji.shortcode() {
+                            if let Some(score) = self.fuzzy_matcher.fuzzy_match(shortcode, &search_filtered) {
+                                best_score = Some(best_score.map_or(score, |s| s.max(score)));
+                            }
+                        }
+
+                        if emoji_name.contains(&search_filtered) {
+                            best_score = Some(best_score.map_or(1000, |s| s.max(1000)));
+                        }
+
+                        if let Some(score) = best_score {
+                            if config_skin_tone_contains_emoji {
+                                scored_emojis.push((emoji, score));
+                            }
+                            if emojis_in_conf {
+                                scored_favorites.push((emoji, score));
+                            }
+                        }
+                    }
+
+                    scored_emojis.sort_by(|a, b| b.1.cmp(&a.1));
+                    scored_favorites.sort_by(|a, b| b.1.cmp(&a.1));
+
+                    self.emojis_filtered = scored_emojis.into_iter().map(|(emoji, _)| emoji).collect();
+                    self.favorites_filtered = scored_favorites.into_iter().map(|(emoji, _)| emoji).collect();
                 }
             }
             Message::Group(group) => return self.update_group(group),
